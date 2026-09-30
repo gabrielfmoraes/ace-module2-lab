@@ -21,6 +21,14 @@ function favicon () {
   return utils.extractFilename(config.get('application.favicon'))
 }
 
+function escapeForPug (str?: string): string {
+  if (!str) {
+    return '\\'
+  }
+  const escaped = str.replace(/([#!]{)/g, '\\$1')
+  return escaped.startsWith('\\') ? escaped : '\\' + escaped
+}
+
 export function getUserProfile () {
   return async (req: Request, res: Response, next: NextFunction) => {
     let template: string
@@ -58,27 +66,32 @@ export function getUserProfile () {
         if (!code) {
           throw new Error('Username is null')
         }
-        const singleQuoteRegex = /^'(?:[^'\\]|\\.)*'$/
-        const doubleQuoteRegex = /^"(?:[^"\\]|\\.)*"$/
-        const backtickRegex = /^`(?:[^`\\$]|\\.|\$(?!{))*`$/
+        const mathRegex = /^[\d\s+\-*/%().]+$/
+        const singleQuoteRegex = /^'(?:[^'\\#!]|\\.)*'$/
+        const doubleQuoteRegex = /^"(?:[^"\\#!]|\\.)*"$/
+        const backtickRegex = /^`(?:[^`\\$#!]|\\.|\$(?!{))*`$/
         const numericRegex = /^-?\d+(?:\.\d+)?$/
         const booleanRegex = /^(?:true|false|null|undefined)$/
 
-        const isSafe = singleQuoteRegex.test(code) ||
+        const isSafe = (mathRegex.test(code) && /\d/.test(code)) ||
+          singleQuoteRegex.test(code) ||
           doubleQuoteRegex.test(code) ||
           backtickRegex.test(code) ||
           numericRegex.test(code) ||
           booleanRegex.test(code)
 
-        if (!isSafe) {
+        if (!isSafe || code.includes('#{') || code.includes('!{')) {
           throw new Error('Unsafe code execution blocked')
         }
-        username = eval(code) // eslint-disable-line no-eval
+        username = String(eval(code)) // eslint-disable-line no-eval
+        if (username.includes('#{') || username.includes('!{') || /[\r\n]/.test(username)) {
+          throw new Error('Unsafe code execution blocked')
+        }
       } catch (err) {
-        username = '\\' + username
+        username = escapeForPug(user.username)
       }
     } else {
-      username = '\\' + username
+      username = escapeForPug(user.username)
     }
 
     const themeKey = config.get<string>('application.theme') as keyof typeof themes
